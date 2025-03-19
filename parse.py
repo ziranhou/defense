@@ -53,8 +53,6 @@ def parse_args():
     parser.add_argument('--attack_batch_size', type=int, default=256, help='Batch size on FedRecAttack.')
 
 
-
-
     return parser.parse_args()
 
 
