@@ -21,6 +21,11 @@ class FedRecAttackClient(object):
         self.train_all = None
 
 
+    def update_rules(self, new_rules):
+        """联邦攻击客户端的规则适应"""
+        # 调整噪声注入策略
+        self.noise_std = max(1e-7, new_rules.get('noise_std', 1e-7))
+
     def eval_(self, _items_emb):
         """
         评估物品嵌入向量的效果（函数尚未实现）

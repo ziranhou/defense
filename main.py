@@ -2,6 +2,8 @@ import torch
 import random
 import numpy as np
 from time import time
+
+from FedRec.defense import DynamicDefense
 from parse import args
 from data import load_dataset
 
@@ -84,7 +86,6 @@ def main():
     target_items = np.random.choice(m_item, 1, replace=False).tolist()
 
     # 初始化服务器和基础客户端
-    server = FedRecServer(m_item, args.dim).to(args.device)
     clients = []
     for train_ind, test_ind in zip(all_train_ind, all_test_ind):
         clients.append(
@@ -145,6 +146,14 @@ def main():
             print('Unknown args --attack.')
             return
 
+    server = FedRecServer(
+        m_item=m_item,
+        dim=args.dim,
+        clients=clients,
+        args=args  # 传入全局参数对象
+    ).to(args.device)
+
+
     # 输出数据集统计信息
     print("Load data done [%.1f s]. #user=%d, #item=%d, #train=%d, #test=%d" %
           (time() - t0, len(clients), m_item,
@@ -167,6 +176,10 @@ def main():
             t1 = time()
             rand_clients = np.arange(len(clients))
             np.random.shuffle(rand_clients)
+
+            if args.defense_mode == 'dynamic':
+                DynamicDefense.adjust_threshold(server, epoch)
+                DynamicDefense.broadcast_rules(server, clients)
 
             # 分批次训练
             total_loss = []

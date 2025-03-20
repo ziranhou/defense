@@ -2,6 +2,14 @@ from FedRec.client import FedRecClient
 
 
 class BaselineAttackClient(FedRecClient):
+
+    def update_rules(self, new_rules):
+        """攻击客户端特殊规则处理"""
+        super().update_rules(new_rules)  # 调用父类基础逻辑
+        # 增加攻击策略调整（示例）
+        if new_rules['threshold'] > 0.8:
+            self.attack_intensity *= 0.5  # 高阈值时降低攻击强度
+
     def train_(self, items_emb, reg=0):
         """训练模型的核心方法（覆盖父类实现）
 

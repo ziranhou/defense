@@ -1,9 +1,11 @@
+from collections import defaultdict
+
 import torch
 import numpy as np
 import torch.nn as nn
 from parse import args
 from eval import evaluate_recall, evaluate_ndcg
-
+from scipy.special import rel_entr
 
 class FedRecClient(nn.Module):
     def __init__(self, train_ind, test_ind, target_ind, m_item, dim):
@@ -20,6 +22,10 @@ class FedRecClient(nn.Module):
         2. 创建训练集的负样本集合
         3. 初始化用户嵌入层"""
         super().__init__()  # 调用父类构造函数
+
+        # 新增信任度属性
+        self.trust_score = 1.0
+        self.local_anomalies = {}
 
         # 初始化基础数据集
         self._train_ = train_ind
@@ -60,6 +66,11 @@ class FedRecClient(nn.Module):
         self._user_emb = nn.Embedding(1, dim)  # 单用户嵌入层
         nn.init.normal_(self._user_emb.weight, std=0.01)  # 参数初始化
 
+    def update_rules(self, new_rules):
+        """更新本地防御规则"""
+        # 基础客户端默认实现
+        self.trust_score *= new_rules.get('penalty', 1.0)  # 应用惩罚系数
+        self.local_rules = new_rules  # 存储最新规则
 
     def forward(self, items_emb):
         """计算用户嵌入向量与项目嵌入向量的点积得分
@@ -166,3 +177,55 @@ class FedRecClient(nn.Module):
 
         return test_result, target_result
 
+    def detect_anomalies(self, items_emb):
+        """多维度异常检测"""
+        anomalies = {}
+
+        # 1. 梯度范数分析
+        grad_norm = items_emb.grad.norm(p=2).item()
+        anomalies['grad_norm'] = grad_norm
+
+        # 2. 数据分布检测（示例：评分分布KL散度）
+        train_scores = self._train_.cpu().numpy()
+        global_dist = torch.histc(items_emb, bins=10).cpu().numpy()  # 转换tensor为numpy
+        local_dist = np.histogram(train_scores, bins=10)[0]
+        kl_div = np.sum(rel_entr(local_dist, global_dist + 1e-9))  # 添加平滑处理避免零除
+        anomalies['kl_div'] = kl_div
+
+        # 3. 更新稳定性检测
+        if hasattr(self, 'last_update'):
+            update_diff = (items_emb - self.last_update).norm().item()
+            anomalies['update_diff'] = update_diff
+        self.last_update = items_emb.clone()
+
+        self.local_anomalies = anomalies
+        return anomalies
+
+    def report_abnormal(self, client_id, reason):
+        """生成异常报告"""
+        return {
+            'reporter': self.client_id,
+            'target': client_id,
+            'reason': reason,
+            'evidence': self.local_anomalies
+
+        }
+
+
+class TrustManager:
+    def __init__(self):
+        self.blocklist = set()
+        self.reputation = defaultdict(lambda: {'score': 1.0, 'last_update': 0})
+
+    def evaluate(self, client_id, current_step=None):
+        """综合信任评估"""
+        rep = self.reputation[client_id]
+        time_decay = 0.9 ** (current_step - rep['last_update'])
+        return rep['score'] * time_decay
+
+    def update(self, client_id, penalty, current_step=None):
+        """动态更新信誉值"""
+        self.reputation[client_id]['score'] *= penalty
+        self.reputation[client_id]['last_update'] = current_step
+        if self.reputation[client_id]['score'] < 0.2:
+            self.blocklist.add(client_id)

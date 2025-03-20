@@ -52,9 +52,15 @@ def parse_args():
     parser.add_argument('--attack_lr', type=float, default=0.01, help='Learning rate on FedRecAttack.')
     parser.add_argument('--attack_batch_size', type=int, default=256, help='Batch size on FedRecAttack.')
 
+    # 在parse.py的parse_args()中添加
+    parser.add_argument('--defense_mode', type=str, default='dynamic',
+                        choices=['none', 'static', 'dynamic'],
+                        help='防御模式选择')
+    parser.add_argument('--trust_threshold', type=float, default=0.7,
+                        help='客户端信任度阈值')
+    parser.add_argument('--voting_ratio', type=float, default=0.6,
+                        help='触发处置的投票比例阈值')
 
     return parser.parse_args()
-
-
 
 args = parse_args()
