@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from parse import args
@@ -103,3 +104,98 @@ class FedRecServer(nn.Module):
         # 计算并返回两个维度的平均结果
         return test_results / test_cnt, target_results / target_cnt
 
+
+# server.py
+import torch
+import torch.nn as nn
+from parse import args
+
+
+def weighted_median(client_updates, client_losses):
+    """
+    计算加权中位数聚合。
+    通过加权聚合每个客户端的更新，使用损失值作为权重。
+    """
+    # 将每个客户端的更新按照其损失加权
+    sorted_updates = sorted(zip(client_losses, client_updates), key=lambda x: x[0])
+    sorted_client_losses = [s[0] for s in sorted_updates]
+    sorted_client_updates = [s[1] for s in sorted_updates]
+
+    # 计算加权中位数
+    total_loss = sum(sorted_client_losses)
+    half_loss = total_loss / 2
+    cumulative_loss = 0
+    for loss, update in zip(sorted_client_losses, sorted_client_updates):
+        cumulative_loss += loss
+        if cumulative_loss >= half_loss:
+            return update
+    return sorted_client_updates[0]  # If not found, return the first update
+
+
+class FedRecServerWithDefense(nn.Module):
+    def __init__(self, m_item, dim, grad_limit=1.0, clients_limit=0.05):
+        super().__init__()
+        self.m_item = m_item
+        self.dim = dim
+        self.grad_limit = grad_limit
+        self.clients_limit = clients_limit
+        self.items_emb = nn.Embedding(m_item, dim)
+        nn.init.normal_(self.items_emb.weight, std=0.01)
+
+
+    def train_(self, clients, batch_clients_idx):
+        batch_loss = []
+        all_losses = []
+        client_updates = []
+
+        for idx in batch_clients_idx:
+            client = clients[idx]
+            items, items_emb_grad, loss = client.train_(self.items_emb.weight)
+
+            # 记录损失
+            all_losses.append(loss)
+
+            # -- 关键：将 [len(items), dim] 大小的梯度扩展到 [m_item, dim] --
+            full_update = torch.zeros_like(self.items_emb.weight)  # [m_item, dim]
+            full_update[items] = items_emb_grad  # 把对应索引的更新写入full_update
+            client_updates.append(full_update)
+
+        # ----过滤 None，避免加权中位数时出错----
+        valid_pairs = [
+            (update, loss) for update, loss in zip(client_updates, all_losses) if loss is not None
+        ]
+        if not valid_pairs:
+            # 若本批次全是None损失，就不更新
+            return all_losses
+
+        # 解包得到过滤后的张量和loss
+        filtered_updates, filtered_losses = zip(*valid_pairs)
+
+        # 使用加权中位数聚合
+        robust_update = weighted_median(filtered_updates, filtered_losses)
+        # robust_update 现在是 [m_item, dim] 大小，能与 self.items_emb.weight 匹配
+
+        # 更新全局物品嵌入
+        with torch.no_grad():
+            self.items_emb.weight.data.add_(robust_update, alpha=-args.lr)
+
+        return all_losses
+    def eval_(self, clients):
+        """
+        Evaluate the model on the clients.
+        """
+        test_cnt = 0
+        test_results = 0.
+        target_cnt = 0
+        target_results = 0.
+
+        for client in clients:
+            test_result, target_result = client.eval_(self.items_emb.weight)
+            if test_result is not None:
+                test_cnt += 1
+                test_results += test_result
+            if target_result is not None:
+                target_cnt += 1
+                target_results += target_result
+
+        return test_results / test_cnt if test_cnt > 0 else 0, target_results / target_cnt if target_cnt > 0 else 0

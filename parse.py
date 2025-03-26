@@ -42,8 +42,7 @@ def parse_args():
     parser.add_argument('--epochs', type=int, default=200, help='Number of epochs.')
     parser.add_argument('--batch_size', type=int, default=256, help='Batch size.')
 
-    # 防御机制限制参数
-    parser.add_argument('--grad_limit', type=float, default=1., help='Limit of l2-norm of item gradients.')
+    parser.add_argument('--grad_limit', type=float, default=5., help='Limit of l2-norm of item gradients.')
     parser.add_argument('--clients_limit', type=float, default=0.05, help='Limit of proportion of malicious clients.')
     parser.add_argument('--items_limit', type=int, default=60, help='Limit of number of non-zero item gradients.')
     parser.add_argument('--part_percent', type=int, default=1, help='Proportion of attacker\'s prior knowledge.')

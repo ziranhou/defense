@@ -8,6 +8,9 @@ from data import load_dataset
 from FedRec.server import FedRecServer
 from FedRec.client import FedRecClient
 
+from FedRec.server import FedRecServerWithDefense
+
+
 
 def setup_seed(seed):
     """
@@ -84,7 +87,8 @@ def main():
     target_items = np.random.choice(m_item, 1, replace=False).tolist()
 
     # 初始化服务器和基础客户端
-    server = FedRecServer(m_item, args.dim).to(args.device)
+    server = FedRecServerWithDefense(m_item, args.dim).to(args.device)
+    # server = FedRecServer(m_item, args.dim).to(args.device)
     clients = []
     for train_ind, test_ind in zip(all_train_ind, all_test_ind):
         clients.append(
@@ -173,8 +177,16 @@ def main():
             for i in range(0, len(rand_clients), args.batch_size):
                 batch_clients_idx = rand_clients[i: i + args.batch_size]
                 loss = server.train_(clients, batch_clients_idx)
+
+                # 过滤掉 None 值
+                loss = [l for l in loss if l is not None]  # 过滤掉 None 值
                 total_loss.extend(loss)
-            total_loss = np.mean(total_loss).item()
+
+            # 计算总损失并防止 None 引起的错误
+            if total_loss:  # 如果 total_loss 不是空的
+                total_loss = np.mean(total_loss).item()
+            else:
+                total_loss = 0  # 如果没有有效的损失，设置损失为 0
 
             # 本轮次性能评估
             t2 = time()
