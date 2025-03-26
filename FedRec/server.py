@@ -199,3 +199,6 @@ class FedRecServerWithDefense(nn.Module):
                 target_results += target_result
 
         return test_results / test_cnt if test_cnt > 0 else 0, target_results / target_cnt if target_cnt > 0 else 0
+
+# 0011
+
